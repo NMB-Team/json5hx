@@ -5,187 +5,181 @@ import haxe.json5.Token;
 using StringTools;
 
 class Parser {
-    var tokens: Array<Token>;
-    var currToken: Int = 0;
+	var tokens:Array<Token>;
+	var currToken = 0;
 
-    var numberRegex: EReg = new EReg("^(?:[+-]?(?:(?:[1-9]\\d*|0)(?:\\.\\d*)?|\\.\\d+)(?:[Ee][+-]?\\d+)?)$", "");
-    var hexadecimalRegex: EReg = new EReg("^[+-]?(?:0x)[0-9a-f]+$", "i");
+	final numberRegex = new EReg("^(?:[+-]?(?:(?:[1-9]\\d*|0)(?:\\.\\d*)?|\\.\\d+)(?:[Ee][+-]?\\d+)?)$", "");
+	final hexadecimalRegex = new EReg("^[+-]?(?:0x)[0-9a-f]+$", "i");
 
-    @:allow(haxe.Json5)
-    function new(tokens: Array<Token>): Void {
-        this.tokens = tokens;
-    }
-    
-    public function parse(): Any {
-        var output: Any = parseValue();
+	@:allow(haxe.Json5)
+	private function new(tokens:Array<Token>):Void {
+		this.tokens = tokens;
+	}
 
-        if (currToken < tokens.length) {
-            invalidEof();
-        }
+	public function parse():Any {
+		final output = parseValue();
+		if (currToken < tokens.length) invalidEof();
+		return output;
+	}
 
-        return output;
-    }
+	private function parseValue():Any {
+		final token = tokens[currToken];
 
-    function parseValue(): Any {
-        var token: Token = tokens[currToken];
+		if (token == null) throw 'Premature document end';
 
-        if (token == null)
-            throw 'Premature document end';
+		switch (token) {
+			case TLBrace(_):
+				return parseObject();
 
-        switch (token) {
-            case TLBrace(_):
-                return parseObject();
+			case TLBracket(_):
+				return parseArray();
 
-            case TLBracket(_):
-                return parseArray();
-            
-            case TString(string, _):
-                currToken++;
-                return string;
-            
-            case TId(raw, pos):
-                currToken++;
-                return parseIdentifier(raw, pos);
+			case TString(string, _):
+				currToken++;
+				return string;
 
-            default:
-                throw 'Cannot parse value "${TokenHelper.tokenToString(token)}" ${TokenHelper.extractPos(token)}';
-        }
-    }
+			case TId(raw, pos):
+				currToken++;
+				return parseIdentifier(raw, pos);
 
-    function parseObject(): Any {
-        var firstToken: Token = tokens[currToken++];
-        var currentToken: Token = null;
-        var nextIsComma: Bool = false;
-        var output: Any = {};
+			default:
+				throw 'Cannot parse value "${TokenHelper.tokenToString(token)}" ${TokenHelper.extractPos(token)}';
+		}
+	}
 
-        while (true) {
-            currentToken = tokens[currToken];
+	private function parseObject():Any {
+		final firstToken = tokens[currToken++];
+		var currentToken:Token = null;
+		var nextIsComma = false;
+		final output:Any = {};
 
-            if (currentToken == null)
-                throw 'Object must be closed with a right brace ${TokenHelper.extractPos(firstToken)}';
+		while (true) {
+			currentToken = tokens[currToken];
 
-            switch (currentToken) {
-                case TRBrace(_):
-                    // end of object
-                    currToken++;
-                    break;
+			if (currentToken == null)
+				throw 'Object must be closed with a right brace ${TokenHelper.extractPos(firstToken)}';
 
-                case TComma(_) if (nextIsComma):
-                    // trailing comma/separator comma
-                    currToken++;
-                    nextIsComma = false;
+			switch (currentToken) {
+				case TRBrace(_):
+					// end of object
+					currToken++;
+					break;
 
-                case ((!nextIsComma && (_.match(TString(_)) || _.match(TId(_)))) => true):
-                    parseKeyValuePair(output);
-                    nextIsComma = true;
+				case TComma(_) if (nextIsComma):
+					// trailing comma/separator comma
+					currToken++;
+					nextIsComma = false;
 
-                default:
-                    throw 'Unexpected "${TokenHelper.tokenToString(currentToken)}" ${TokenHelper.extractPos(currentToken)}';
-            }
-        }
+				case ((!nextIsComma && (_.match(TString(_)) || _.match(TId(_)))) => true):
+					parseKeyValuePair(output);
+					nextIsComma = true;
 
-        return output;
-    }
+				default:
+					throw 'Unexpected "${TokenHelper.tokenToString(currentToken)}" ${TokenHelper.extractPos(currentToken)}';
+			}
+		}
 
-    function parseArray(): Array<Any> {
-        var firstToken: Token = tokens[currToken++];
-        var currentToken: Token = null;
-        var nextIsComma: Bool = false;
-        var output: Array<Any> = [];
+		return output;
+	}
 
-        while (true) {
-            currentToken = tokens[currToken];
+	private function parseArray():Array<Any> {
+		final firstToken = tokens[currToken++];
+		var currentToken:Token = null;
+		var nextIsComma = false;
+		final output:Array<Any> = [];
 
-            if (currentToken == null)
-                throw 'Array must be closed with a right bracket ${TokenHelper.extractPos(firstToken)}';
+		while (true) {
+			currentToken = tokens[currToken];
 
-            switch (currentToken) {
-                case TRBracket(_):
-                    // end of array
-                    currToken++;
-                    break;
+			if (currentToken == null)
+				throw 'Array must be closed with a right bracket ${TokenHelper.extractPos(firstToken)}';
 
-                case TComma(_) if (nextIsComma):
-                    currToken++;
-                    nextIsComma = false;
+			switch (currentToken) {
+				case TRBracket(_):
+					// end of array
+					currToken++;
+					break;
 
-                case (!nextIsComma => true):
-                    output.push(parseValue());
-                    nextIsComma = true;
+				case TComma(_) if (nextIsComma):
+					currToken++;
+					nextIsComma = false;
 
-                default:
-                    throw 'Unexpected "${TokenHelper.tokenToString(currentToken)}" ${TokenHelper.extractPos(currentToken)}';
-            }
-        }
+				case (!nextIsComma => true):
+					output.push(parseValue());
+					nextIsComma = true;
 
-        return output;
-    }
+				default:
+					throw 'Unexpected "${TokenHelper.tokenToString(currentToken)}" ${TokenHelper.extractPos(currentToken)}';
+			}
+		}
 
-    function parseKeyValuePair(object: Any): Void {
-        var keyToken: Token = tokens[currToken];
-        var key: String = switch (keyToken) {
-            case TString(key, _), TId(key, _):
-                key;
-            default:
-                throw 'This shouldn\'t be reachable.';
-        };
+		return output;
+	}
 
-        if (!nextTokenIsColon())
-            throw 'Expected colon next to key "${key}" ${TokenHelper.extractPos(keyToken)}';
+	private function parseKeyValuePair(object:Any):Void {
+		final keyToken = tokens[currToken];
+		final key:String = switch (keyToken) {
+			case TString(key, _), TId(key, _):
+				key;
+			default:
+				throw 'This shouldn\'t be reachable.';
+		};
 
-        if (Reflect.hasField(object, key))
-            throw 'Duplicate key "${key}" ${TokenHelper.extractPos(keyToken)}';
+		if (!nextTokenIsColon())
+			throw 'Expected colon next to key "${key}" ${TokenHelper.extractPos(keyToken)}';
 
-        currToken++;
+		if (Reflect.hasField(object, key))
+			throw 'Duplicate key "${key}" ${TokenHelper.extractPos(keyToken)}';
 
-        var value: Any = parseValue();
-        Reflect.setProperty(object, key, value);
-    }
+		currToken++;
 
-    function parseIdentifier(raw: String, pos: TokenPos): Any {
-        switch (raw) {
-            case 'null':
-                return null;
+		final value = parseValue();
+		Reflect.setProperty(object, key, value);
+	}
 
-            case 'true':
-                return true;
+	private function parseIdentifier(raw:String, pos:TokenPos):Any {
+		switch (raw) {
+			case 'null':
+				return null;
 
-            case 'false':
-                return false;
+			case 'true':
+				return true;
 
-            case 'Infinity', '+Infinity':
-                return Math.POSITIVE_INFINITY;
+			case 'false':
+				return false;
 
-            case '-Infinity':
-                return Math.NEGATIVE_INFINITY;
+			case 'Infinity', '+Infinity':
+				return Math.POSITIVE_INFINITY;
 
-            case 'NaN', '+NaN', '-NaN':
-                return Math.NaN;
+			case '-Infinity':
+				return Math.NEGATIVE_INFINITY;
 
-            case (hexadecimalRegex.match(_) => true):
-                return Std.parseInt(raw);
+			case 'NaN', '+NaN', '-NaN':
+				return Math.NaN;
 
-            case (numberRegex.match(_) => true):
-                return Std.parseFloat(raw);
+			case (hexadecimalRegex.match(_) => true):
+				return Std.parseInt(raw);
 
-            default:
-                throw 'Couldn\'t parse value "${raw}" ${pos}';
-        }
-    }
+			case (numberRegex.match(_) => true):
+				return Std.parseFloat(raw);
 
-    function nextTokenIsColon(): Bool {
-        var token: Token = tokens[++currToken];
-        return token != null && token.match(TColon(_));
-    }
+			default:
+				throw 'Couldn\'t parse value "${raw}" ${pos}';
+		}
+	}
 
-    function invalidEof(): Void {
-        var token: Token = tokens[currToken];
-        var pos: TokenPos = TokenHelper.extractPos(token);
+	private function nextTokenIsColon():Bool {
+		final token = tokens[++currToken];
+		return token != null && token.match(TColon(_));
+	}
 
-        var char: String = TokenHelper.tokenToString(token);
-        if (char.length > 1)
-            char = char.charAt(0);
+	private function invalidEof():Void {
+		final token = tokens[currToken];
+		final pos = TokenHelper.extractPos(token);
 
-        throw 'Invalid non-whitespace character after value: "${char}" ' + pos;
-    }
+		var char = TokenHelper.tokenToString(token);
+		if (char.length > 1) char = char.charAt(0);
+
+		throw 'Invalid non-whitespace character after value: "${char}" ' + pos;
+	}
 }

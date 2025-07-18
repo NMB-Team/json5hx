@@ -3,262 +3,255 @@ package haxe.json5;
 import haxe.json5.Token;
 
 class Lexer {
-    var content: String;
-    var output: Array<Token>;
+	var content:String;
+	var output:Array<Token>;
 
-    var currChar: Int = 0;
-    var currLine: Int = 1;
-    var currColumn: Int = 1;
+	var currChar = 0;
+	var currLine = 1;
+	var currColumn = 1;
 
-    @:allow(haxe.Json5)
-    function new(content: String): Void {
-        this.content = content;
-    }
+	@:allow(haxe.Json5)
+	private function new(content:String):Void {
+		this.content = content;
+	}
 
-    public function tokenize(): Array<Token> {
-        output = [];
+	public function tokenize():Array<Token> {
+		output = [];
 
-        while (currChar < content.length) {
-            var charCode: Int = currentChar();
-            var token: Token = resolveToken(charCode);
+		while (currChar < content.length) {
+			final charCode = currentChar();
+			final token = resolveToken(charCode);
 
-            if (token != null)
-                output.push(token);
+			if (token != null)
+				output.push(token);
 
-            consume();
-        }
+			consume();
+		}
 
-        return output;
-    }
+		return output;
+	}
 
-    function resolveToken(charCode: Int): Token {
-        switch (charCode) {
-            case (TokenHelper.isTokenReserved(_) => true):
-                return TokenHelper.getReservedToken(charCode, currentPos());
+	private function resolveToken(charCode:Int):Token {
+		switch (charCode) {
+			case (TokenHelper.isTokenReserved(_) => true):
+				return TokenHelper.getReservedToken(charCode, currentPos());
 
-            case (TokenHelper.isTokenWhitespace(_) => true):
-                return null;
+			case (TokenHelper.isTokenWhitespace(_) => true):
+				return null;
 
-            case '"'.code:
-                // capture all characters between the current and the next double quote
-                return parseString('"'.code);
+			case '"'.code:
+				// capture all characters between the current and the next double quote
+				return parseString('"'.code);
 
-            case "'".code:
-                // capture all characters between the current and the next single quote
-                return parseString("'".code);
+			case "'".code:
+				// capture all characters between the current and the next single quote
+				return parseString("'".code);
 
-            case '/'.code:
-                // single-line/multi-line comment
-                skipComment();
-                return null;
+			case '/'.code:
+				// single-line/multi-line comment
+				skipComment();
+				return null;
 
-            default:
-                return parseIdentifier();
-        }
-    }
+			default:
+				return parseIdentifier();
+		}
+	}
 
-    function parseString(quotationMark: Int): Token {
-        consume();
+	private function parseString(quotationMark:Int):Token {
+		consume();
 
-        var buf: StringBuf = new StringBuf();
-        var formFeedOffset: Int = 0;
+		var buf = new StringBuf();
+		var formFeedOffset = 0;
 
-        var originLine: Int = currLine;
-        var originColumn: Int = currColumn;
+		final originLine = currLine;
+		final originColumn = currColumn;
 
-        while (true) {
-            var code: Int = currentChar();
+		while (true) {
+			var code = currentChar();
 
-            if (StringTools.isEof(code))
-                throw 'Unclosed string ' + TokenHelper.formatPos(originLine, originColumn);
+			if (StringTools.isEof(code))
+				throw 'Unclosed string ' + TokenHelper.formatPos(originLine, originColumn);
 
-            if (code == quotationMark)
-                break;
+			if (code == quotationMark)
+				break;
 
-            switch (code) {
-                case '\\'.code:
-                    // handle escape sequence
-                    consume();
-                    code = currentChar();
-                    consume();
+			switch (code) {
+				case '\\'.code:
+					// handle escape sequence
+					consume();
+					code = currentChar();
+					consume();
 
-                    switch (code) {
-                        case 'x'.code:
-                            buf.addChar(parseHexadecimalCharacter(2, quotationMark));
+					switch (code) {
+						case 'x'.code:
+							buf.addChar(parseHexadecimalCharacter(2, quotationMark));
 
-                        case 'u'.code:
-                            buf.addChar(parseHexadecimalCharacter(4, quotationMark));
+						case 'u'.code:
+							buf.addChar(parseHexadecimalCharacter(4, quotationMark));
 
-                        case 'b'.code:
-                            var flushed: String = buf.toString();
-                            if (flushed.length > 0) {
-                                buf = new StringBuf();
-                                buf.add(flushed.substring(0, flushed.length - 1));
-                            }
+						case 'b'.code:
+							final flushed = buf.toString();
+							if (flushed.length > 0) {
+								buf = new StringBuf();
+								buf.add(flushed.substring(0, flushed.length - 1));
+							}
 
-                        case 'f'.code, 'v'.code:
-                            buf.addChar('\n'.code);
-                            for (i in 0...formFeedOffset) {
-                                buf.addChar(' '.code);
-                            }
+						case 'f'.code, 'v'.code:
+							buf.addChar('\n'.code);
+							for (i in 0...formFeedOffset) {
+								buf.addChar(' '.code);
+							}
 
-                        case 'n'.code:
-                            buf.addChar('\n'.code);
-                            formFeedOffset = 0;
+						case 'n'.code:
+							buf.addChar('\n'.code);
+							formFeedOffset = 0;
 
-                        case 'r'.code:
-                            buf.addChar('\r'.code);
+						case 'r'.code:
+							buf.addChar('\r'.code);
 
-                        case 't'.code:
-                            buf.addChar('\t'.code);
+						case 't'.code:
+							buf.addChar('\t'.code);
 
-                        case '0'.code:
-                            buf.addChar(0);
+						case '0'.code:
+							buf.addChar(0);
 
-                            var followingChar: Int = currentChar();
-                            if (isDigit(followingChar))
-                                throw 'Digit cannot follow \\0 ' + currentPos();
-                        
-                        case (isLineTerminator(_) => true):
-                            while (isLineTerminator(currentChar())) {
-                                consume();
-                            }
+							final followingChar = currentChar();
+							if (isDigit(followingChar))
+								throw 'Digit cannot follow \\0 ' + currentPos();
 
-                        case ((_ < '1'.code || code > '9'.code) => true):
-                            buf.addChar(code);
+						case (isLineTerminator(_) => true):
+							while (isLineTerminator(currentChar()))
+								consume();
 
-                        default:
-                            // do nothing
-                    }
+						case ((_ < '1'.code || code > '9'.code) => true):
+							buf.addChar(code);
 
-                case '\n'.code, '\r'.code:
-                    throw 'String cannot be continued on a newline without reverse solidus (\\) ' + currentPos();
+						default:
+							// do nothing
+					}
 
-                default:
-                    if (code == 0x2028)
-                        Json5.warning('Unicode code point U+2028 (Line Separator) found unescaped ' + TokenHelper.formatPos(currLine, currColumn));
-                    else if (code == 0x2029)
-                        Json5.warning('Unicode code point U+2029 (Paragraph Separator) found unescaped ' + TokenHelper.formatPos(currLine, currColumn));
+				case '\n'.code, '\r'.code:
+					throw 'String cannot be continued on a newline without reverse solidus (\\) ' + currentPos();
 
-                    buf.addChar(code);
-                    consume();
-            }
+				default:
+					if (code == 0x2028)
+						Json5.warning('Unicode code point U+2028 (Line Separator) found unescaped ' + TokenHelper.formatPos(currLine, currColumn));
+					else if (code == 0x2029)
+						Json5.warning('Unicode code point U+2029 (Paragraph Separator) found unescaped ' + TokenHelper.formatPos(currLine, currColumn));
 
-            formFeedOffset++;
-        }
+					buf.addChar(code);
+					consume();
+			}
 
-        return TString(buf.toString(), currentPos());
-    }
+			formFeedOffset++;
+		}
 
-    function parseIdentifier(): Token {
-        var buf: StringBuf = new StringBuf();
+		return TString(buf.toString(), currentPos());
+	}
 
-        while (true) {
-            buf.addChar(currentChar());
+	private function parseIdentifier():Token {
+		final buf = new StringBuf();
 
-            var next: Int = peek();
+		while (true) {
+			buf.addChar(currentChar());
 
-            if (StringTools.isEof(next))
-                break;
+			final next = peek();
+			if (StringTools.isEof(next) || !TokenHelper.isTokenFromIdentifier(next)) break;
 
-            if (!TokenHelper.isTokenFromIdentifier(next))
-                break;
-            
-            consume();
-        }
+			consume();
+		}
 
-        return TId(buf.toString(), currentPos());
-    }
+		return TId(buf.toString(), currentPos());
+	}
 
-    function parseHexadecimalCharacter(digits: Int, quotationMark: Int): Int {
-        var extractedHexadecimal: StringBuf = new StringBuf();
+	private function parseHexadecimalCharacter(digits:Int, quotationMark:Int):Int {
+		final extractedHexadecimal = new StringBuf();
 
-        for (i in 0...digits) {
-            var code: Int = currentChar();
-            if (StringTools.isEof(code) || code == quotationMark)
-                throw 'Expected ' + digits + ' hexadecimal digits ' + currentPos();
+		for (i in 0...digits) {
+			final code = currentChar();
+			if (StringTools.isEof(code) || code == quotationMark)
+				throw 'Expected ' + digits + ' hexadecimal digits ' + currentPos();
 
-            if (!isHexadecimalDigit(code))
-                throw 'Invalid hexadecimal digit "' + String.fromCharCode(code) + '" ' + currentPos();
+			if (!isHexadecimalDigit(code))
+				throw 'Invalid hexadecimal digit "' + String.fromCharCode(code) + '" ' + currentPos();
 
-            extractedHexadecimal.addChar(code);
-            consume();
-        }
+			extractedHexadecimal.addChar(code);
+			consume();
+		}
 
-        return Std.parseInt('0x' + extractedHexadecimal.toString());
-    }
+		return Std.parseInt('0x' + extractedHexadecimal.toString());
+	}
 
-    function skipComment(): Void {
-        var nextCode: Int = peek();
+	private function skipComment():Void {
+		final nextCode = peek();
 
-        switch (nextCode) {
-            case '/'.code:
-                // single-line comment
-                consume();
-                consume();
-                while (true) {
-                    var code: Int = currentChar();
-                    if (code == '\n'.code || StringTools.isEof(code))
-                        break;
-                    consume();
-                }
-            
-            case '*'.code:
-                // multi-line comment
-                var originLine: Int = currLine;
-                var originColumn: Int = currColumn;
-                consume();
-                consume();
+		switch (nextCode) {
+			case '/'.code:
+				// single-line comment
+				consume();
+				consume();
+				while (true) {
+					final code = currentChar();
+					if (code == '\n'.code || StringTools.isEof(code))
+						break;
+					consume();
+				}
 
-                while (true) {
-                    var code: Int = currentChar();
-                    if (StringTools.isEof(code))
-                        throw 'Unclosed multi-line comment ' + TokenHelper.formatPos(originLine, originColumn);
+			case '*'.code:
+				// multi-line comment
+				final originLine = currLine;
+				final originColumn = currColumn;
+				consume();
+				consume();
 
-                    consume();
-                    if (code == '*'.code && currentChar() == '/'.code)
-                        break;
-                    else if (code == '/'.code && currentChar() == '*'.code)
-                        throw 'Multi-line comments cannot nest ' + currentPos();
-                }
-            
-            default:
-                throw 'Invalid comment declaration ' + currentPos();
-        }
-    }
+				while (true) {
+					final code = currentChar();
+					if (StringTools.isEof(code))
+						throw 'Unclosed multi-line comment ' + TokenHelper.formatPos(originLine, originColumn);
 
-    function consume(): Void {
-        var currentCode: Int = currentChar();
-        if (currentCode == '\n'.code) {
-            currLine++;
-            currColumn = 1;
-        } else {
-            currColumn++;
-        }
-        currChar++;
-    }
+					consume();
+					if (code == '*'.code && currentChar() == '/'.code)
+						break;
+					else if (code == '/'.code && currentChar() == '*'.code)
+						throw 'Multi-line comments cannot nest ' + currentPos();
+				}
 
-    function isLineTerminator(code: Int): Bool {
-        return code == '\n'.code || code == '\r'.code || code == 0x2028 || code == 0x2029;
-    }
+			default:
+				throw 'Invalid comment declaration ' + currentPos();
+		}
+	}
 
-    function isHexadecimalDigit(code: Int): Bool {
-        return (code >= 'a'.code && code <= 'f'.code) || (code >= 'A'.code && code <= 'F'.code) || isDigit(code);
-    }
+	private function consume():Void {
+		final currentCode = currentChar();
+		if (currentCode == '\n'.code) {
+			currLine++;
+			currColumn = 1;
+		} else
+			currColumn++;
+		currChar++;
+	}
 
-    function isDigit(code: Int): Bool {
-        return code >= '0'.code && code <= '9'.code;
-    }
+	private function isLineTerminator(code:Int):Bool {
+		return code == '\n'.code || code == '\r'.code || code == 0x2028 || code == 0x2029;
+	}
 
-    inline function currentPos(): TokenPos {
-        return {line: currLine, column: currColumn};
-    }
+	private function isHexadecimalDigit(code:Int):Bool {
+		return (code >= 'a'.code && code <= 'f'.code) || (code >= 'A'.code && code <= 'F'.code) || isDigit(code);
+	}
 
-    inline function currentChar(): Int {
-        return StringTools.fastCodeAt(content, currChar);
-    }
+	private function isDigit(code:Int):Bool {
+		return code >= '0'.code && code <= '9'.code;
+	}
 
-    inline function peek(): Int {
-        return StringTools.fastCodeAt(content, currChar + 1);
-    }
+	inline function currentPos():TokenPos {
+		return {line: currLine, column: currColumn};
+	}
+
+	inline function currentChar():Int {
+		return StringTools.fastCodeAt(content, currChar);
+	}
+
+	inline function peek():Int {
+		return StringTools.fastCodeAt(content, currChar + 1);
+	}
 }
